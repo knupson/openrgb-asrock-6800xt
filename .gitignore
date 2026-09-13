@@ -1,0 +1,8 @@
+# upstream (OpenRGB, OpenRGBEffectsPlugin), toolchain Qt y transcript
+# viven en ../_datos/openrgb-asrock-6800xt/
+OpenRGB/
+OpenRGBEffectsPlugin/
+Qt/
+transcript/
+__pycache__/
+*.pyc

@@ -1,0 +1,177 @@
+From 320b3c723dbe039785c2f1b9569a2ec27316b2dc Mon Sep 17 00:00:00 2001
+From: Alejandro Benzoni <alejandro_benzoni@hotmail.com>
+Date: Tue, 11 Aug 2026 23:06:16 -0300
+Subject: [PATCH] Add ASRock RX 6800 XT Phantom Gaming GPU RGB support
+
+Registers the Navi 21 ASRock Phantom Gaming card (1002:73BF, subsystem
+1849:5202) with the existing ASRock GPU SMBus controller and makes the
+detector usable on Windows.
+
+Two changes were needed beyond registering the PCI IDs:
+
+* The presence check used i2c_smbus_write_quick(). The Windows AMD ADL
+  backend cannot issue I2C_SMBUS_QUICK and returns -1 unconditionally, so
+  the detector could never fire there. A short pure I2C read is used
+  instead; it is answered by the RGB controller at 0x36 and NAKed by every
+  other address on the GPU bus, verified by scanning 0x08..0x77 on the ADL
+  bus of an RX 6800 XT Phantom Gaming.
+
+* This card's firmware does not implement the 0x14 channel query. The
+  response is a rolling transaction counter, so the channel bitmap reads
+  back as zero and detection was rejected. When the query yields nothing,
+  the detector now falls back to a per-subsystem-device channel layout.
+  Hardware testing showed only channel 6 (Top Side) drives LEDs on this
+  card; channels 3 and 7 are accepted but light nothing.
+
+Colour control over command 0x10 was confirmed working on the hardware
+before and after the change.
+---
+ .../ASRockGPUSMBusController.cpp              | 17 +++++++
+ .../ASRockGPUSMBusController.h                |  1 +
+ .../ASRockGPUSMBusControllerDetect.cpp        | 49 +++++++++++++++----
+ pci_ids/pci_ids.h                             |  6 +++
+ 4 files changed, 64 insertions(+), 9 deletions(-)
+
+diff --git a/Controllers/ASRockSMBusController/ASRockGPUSMBusController/ASRockGPUSMBusController.cpp b/Controllers/ASRockSMBusController/ASRockGPUSMBusController/ASRockGPUSMBusController.cpp
+index c1bbe37..0ed42e9 100644
+--- a/Controllers/ASRockSMBusController/ASRockGPUSMBusController/ASRockGPUSMBusController.cpp
++++ b/Controllers/ASRockSMBusController/ASRockGPUSMBusController/ASRockGPUSMBusController.cpp
+@@ -174,6 +174,23 @@ bool ASRockGPUSMBusController::DetectChannels()
+     return(num_channels > 0);
+ }
+ 
++void ASRockGPUSMBusController::SetChannels(const uint8_t* channels, uint8_t count)
++{
++    /*-----------------------------------------------------*\
++    | Used when the 0x14 query is not implemented by the    |
++    | controller firmware and the channel layout has to be  |
++    | supplied by the detector instead                      |
++    \*-----------------------------------------------------*/
++    num_channels = 0;
++
++    for(uint8_t i = 0; i < count && num_channels < 16; i++)
++    {
++        enabled_channels[num_channels] = channels[i];
++        led_counts[num_channels]       = 1;
++        num_channels++;
++    }
++}
++
+ void ASRockGPUSMBusController::SetChannelColor(uint8_t channel_idx, uint8_t red, uint8_t green, uint8_t blue)
+ {
+     /*-----------------------------------------------------*\
+diff --git a/Controllers/ASRockSMBusController/ASRockGPUSMBusController/ASRockGPUSMBusController.h b/Controllers/ASRockSMBusController/ASRockGPUSMBusController/ASRockGPUSMBusController.h
+index cfeae49..615dbeb 100644
+--- a/Controllers/ASRockSMBusController/ASRockGPUSMBusController/ASRockGPUSMBusController.h
++++ b/Controllers/ASRockSMBusController/ASRockGPUSMBusController/ASRockGPUSMBusController.h
+@@ -40,6 +40,7 @@ public:
+ 
+     void        SetChannelColor(uint8_t channel_idx, uint8_t red, uint8_t green, uint8_t blue);
+     bool        DetectChannels();
++    void        SetChannels(const uint8_t* channels, uint8_t count);
+ 
+     uint8_t     enabled_channels[16];
+     uint8_t     led_counts[16];
+diff --git a/Controllers/ASRockSMBusController/ASRockGPUSMBusController/ASRockGPUSMBusControllerDetect.cpp b/Controllers/ASRockSMBusController/ASRockGPUSMBusController/ASRockGPUSMBusControllerDetect.cpp
+index 97e593e..fb533b8 100644
+--- a/Controllers/ASRockSMBusController/ASRockGPUSMBusController/ASRockGPUSMBusControllerDetect.cpp
++++ b/Controllers/ASRockSMBusController/ASRockGPUSMBusController/ASRockGPUSMBusControllerDetect.cpp
+@@ -7,6 +7,8 @@
+ |   SPDX-License-Identifier: GPL-2.0-or-later               |
+ \*---------------------------------------------------------*/
+ 
++#include <map>
++#include <vector>
+ #include "DetectionManager.h"
+ #include "ASRockGPUSMBusController.h"
+ #include "LogManager.h"
+@@ -14,13 +16,34 @@
+ #include "i2c_smbus.h"
+ #include "pci_ids.h"
+ 
++/*---------------------------------------------------------------------------*\
++| Channel layouts for controllers whose firmware does not implement the 0x14  |
++| query.  On the RX 6800 XT Phantom Gaming the 0x14 response is a rolling     |
++| transaction counter rather than a channel bitmap, so the layout has to be   |
++| supplied here.  Verified on hardware: only channel 6 drives LEDs.           |
++\*---------------------------------------------------------------------------*/
++static const std::map<int, std::vector<uint8_t>> asrock_gpu_fallback_channels =
++{
++    { ASROCK_RX6800XT_PHANTOM_GAMING_SUB_DEV, { ASROCK_GPU_CHANNEL_TOP_SIDE } },
++};
++
+ DetectedControllers DetectASRockGPUSMBusControllers(i2c_smbus_interface* bus, uint8_t address, const std::string& name)
+ {
+     DetectedControllers detected_controllers;
+ 
+     LOG_DEBUG("[ASRock GPU] Checking GPU I2C bus for RGB controller at 0x%02X", address);
+ 
+-    if(bus->i2c_smbus_write_quick(address, I2C_SMBUS_WRITE) < 0)
++    /*-----------------------------------------------------------------------*\
++    | Probe with a pure I2C read rather than an SMBus quick write.  The       |
++    | Windows AMD ADL backend cannot issue I2C_SMBUS_QUICK at all and always  |
++    | fails it, which would make this detector unreachable there.  A short    |
++    | read is answered by the RGB controller and NAKed by every other address |
++    | on the GPU bus, so it discriminates on both Linux and Windows.          |
++    \*-----------------------------------------------------------------------*/
++    int     probe_size    = 4;
++    uint8_t probe_data[4] = { 0 };
++
++    if(bus->i2c_read_block(address, &probe_size, probe_data) < 0)
+     {
+         LOG_DEBUG("[ASRock GPU] No response at address 0x%02X", address);
+         return(detected_controllers);
+@@ -30,17 +53,25 @@ DetectedControllers DetectASRockGPUSMBusControllers(i2c_smbus_interface* bus, ui
+ 
+     ASRockGPUSMBusController* controller = new ASRockGPUSMBusController(bus, address, name);
+ 
+-    if(controller->DetectChannels())
+-    {
+-        detected_controllers.push_back(new RGBController_ASRockGPUSMBus(controller));
+-    }
+-    else
++    if(!controller->DetectChannels())
+     {
+-        LOG_WARNING("[ASRock GPU] No active channels found, device not registered");
+-        delete controller;
++        std::map<int, std::vector<uint8_t>>::const_iterator fallback = asrock_gpu_fallback_channels.find(bus->info.pci_subsystem_device);
++
++        if(fallback == asrock_gpu_fallback_channels.end())
++        {
++            LOG_WARNING("[ASRock GPU] No active channels found, device not registered");
++            delete controller;
++            return(detected_controllers);
++        }
++
++        LOG_DEBUG("[ASRock GPU] Channel query unsupported, using fallback layout for subsystem device 0x%04X", bus->info.pci_subsystem_device);
++        controller->SetChannels(fallback->second.data(), (uint8_t)fallback->second.size());
+     }
+ 
++    detected_controllers.push_back(new RGBController_ASRockGPUSMBus(controller));
++
+     return(detected_controllers);
+ }
+ 
+-REGISTER_I2C_PCI_DETECTOR("ASRock Radeon RX 9070 XT Steel Legend", DetectASRockGPUSMBusControllers, AMD_GPU_VEN, AMD_NAVI48_DEV, ASROCK_SUB_VEN, 0x5403, ASROCK_GPU_SMBUS_ADDRESS);
++REGISTER_I2C_PCI_DETECTOR("ASRock Radeon RX 9070 XT Steel Legend", DetectASRockGPUSMBusControllers, AMD_GPU_VEN, AMD_NAVI48_DEV, ASROCK_SUB_VEN, ASROCK_RX9070XT_STEEL_LEGEND_SUB_DEV, ASROCK_GPU_SMBUS_ADDRESS);
++REGISTER_I2C_PCI_DETECTOR("ASRock Radeon RX 6800 XT Phantom Gaming", DetectASRockGPUSMBusControllers, AMD_GPU_VEN, AMD_NAVI21_DEV1, ASROCK_SUB_VEN, ASROCK_RX6800XT_PHANTOM_GAMING_SUB_DEV, ASROCK_GPU_SMBUS_ADDRESS);
+diff --git a/pci_ids/pci_ids.h b/pci_ids/pci_ids.h
+index 0757e6d..dd8f39f 100644
+--- a/pci_ids/pci_ids.h
++++ b/pci_ids/pci_ids.h
+@@ -174,6 +174,12 @@
+ #define SAPPHIRE_LEGACY_SUB_VEN                                 0x174B
+ #define ZOTAC_SUB_VEN                                           0x19DA
+ 
++/*-----------------------------------------------------*\
++| ASRock Sub-Device IDs                                 |
++\*-----------------------------------------------------*/
++#define ASROCK_RX6800XT_PHANTOM_GAMING_SUB_DEV                  0x5202
++#define ASROCK_RX9070XT_STEEL_LEGEND_SUB_DEV                    0x5403
++
+ /*-----------------------------------------------------*\
+ | ASUS Sub-Device IDs                                   |
+ \*-----------------------------------------------------*/
+-- 
+2.55.0.windows.3
+

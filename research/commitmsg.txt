@@ -1,0 +1,24 @@
+Add ASRock RX 6800 XT Phantom Gaming GPU RGB support
+
+Registers the Navi 21 ASRock Phantom Gaming card (1002:73BF, subsystem
+1849:5202) with the existing ASRock GPU SMBus controller and makes the
+detector usable on Windows.
+
+Two changes were needed beyond registering the PCI IDs:
+
+* The presence check used i2c_smbus_write_quick(). The Windows AMD ADL
+  backend cannot issue I2C_SMBUS_QUICK and returns -1 unconditionally, so
+  the detector could never fire there. A short pure I2C read is used
+  instead; it is answered by the RGB controller at 0x36 and NAKed by every
+  other address on the GPU bus, verified by scanning 0x08..0x77 on the ADL
+  bus of an RX 6800 XT Phantom Gaming.
+
+* This card's firmware does not implement the 0x14 channel query. The
+  response is a rolling transaction counter, so the channel bitmap reads
+  back as zero and detection was rejected. When the query yields nothing,
+  the detector now falls back to a per-subsystem-device channel layout.
+  Hardware testing showed only channel 6 (Top Side) drives LEDs on this
+  card; channels 3 and 7 are accepted but light nothing.
+
+Colour control over command 0x10 was confirmed working on the hardware
+before and after the change.
