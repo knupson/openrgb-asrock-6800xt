@@ -16,7 +16,7 @@ def truncate(text, limit):
     text = text.rstrip()
     if len(text) <= limit:
         return text
-    return text[:limit] + f"\n… [{len(text) - limit} chars truncados]"
+    return text[:limit] + f"\n… [{len(text) - limit} chars truncated]"
 
 
 def block_to_md(block, limit):
@@ -46,7 +46,7 @@ def block_to_md(block, limit):
         elif not isinstance(content, str):
             content = json.dumps(content, ensure_ascii=False)
         flag = " (error)" if block.get("is_error") else ""
-        return f"**← resultado{flag}**\n\n```\n{truncate(content, limit)}\n```"
+        return f"**← result{flag}**\n\n```\n{truncate(content, limit)}\n```"
 
     return f"[{kind}]"
 
@@ -65,9 +65,9 @@ def main(argv):
     with open(src, encoding="utf-8") as f:
         raw_lines = f.readlines()
 
-    lines.append("# Sesión Claude Code — ASRock GPU RGB / OpenRGB\n")
-    lines.append(f"Transcript renderizado de `{src.split(chr(92))[-1]}` "
-                 f"({len(raw_lines)} entradas).\n")
+    lines.append("# Claude Code session — ASRock GPU RGB / OpenRGB\n")
+    lines.append(f"Transcript rendered from `{src.split(chr(92))[-1]}` "
+                 f"({len(raw_lines)} entries).\n")
 
     last_role = None
     for raw in raw_lines:
@@ -96,7 +96,7 @@ def main(argv):
             continue
 
         if role != last_role:
-            lines.append(f"\n## {'Usuario' if role == 'user' else 'Claude'}\n")
+            lines.append(f"\n## {'User' if role == 'user' else 'Claude'}\n")
             last_role = role
 
         lines.extend(rendered)
@@ -105,7 +105,7 @@ def main(argv):
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-    print(f"escrito {out} ({len(lines)} bloques)")
+    print(f"wrote {out} ({len(lines)} blocks)")
     return 0
 
 
