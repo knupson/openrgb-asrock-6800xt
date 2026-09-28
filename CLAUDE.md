@@ -18,6 +18,11 @@ de tocar el protocolo i2c o el patch.
 - Estado: funcionando end-to-end. OpenRGB patcheado en
   `C:\Program Files\OpenRGB-patched` (accesos directos apuntan ahí), la GPU es
   **device 0**. El OpenRGB oficial quedó intacto en `C:\Program Files\OpenRGB`.
+- Desde 2026-09-27 lo productivo es **upstream master `5b2d5ce` + el patch
+  rebaseado de T4toh** (issue #1, `patches\0002-*.patch`), y el Effects Plugin
+  en master (1.0+). Backups del estado anterior en
+  `E:\Repositorios\Personal\_datos\_backups\OpenRGB-patched-2026-09-27` y
+  `...\openrgb-appdata-2026-09-27`.
 
 ## Reglas de este proyecto
 
@@ -31,15 +36,26 @@ de tocar el protocolo i2c o el patch.
 - El patch **no está upstream**. Los releases oficiales de OpenRGB no detectan
   esta placa: hay que rebuildear (`OpenRGB\scripts\build-windows.bat 6.8.3 2022 64`)
   y copiar el output a `C:\Program Files\OpenRGB-patched`.
+- `C:\Program Files` y `%APPDATA%` están fuera del área que permite el hook
+  `write-guard`, y Program Files pide admin: el deploy lo corre el user con `!`.
 
-## Toolchain instalado (no reinstalar)
+## Toolchain
 
-- VS 2022 Build Tools (workload VCTools) en
-  `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools`
-- Qt 6.8.3 msvc2022_64 + módulo qt5compat en `E:\Claude\RGB\Qt`
-- jom en `E:\Claude\RGB\Qt\jom`
-- Los scripts de build resuelven Qt vía `QT_ROOT` (default `E:\Claude\RGB\Qt`).
-  `C:\Qt` ya no existe: el install se movió tal cual, es relocatable por `qt.conf`.
+Fuentes y Qt viven en `E:\Repositorios\Personal\_datos\openrgb-asrock-6800xt\`
+(`E:\Claude\RGB` ya no existe):
+
+- `OpenRGB\` — branch vieja `asrock-gpu-navi21-phantom-gaming` (base `790e148`).
+- `OpenRGB-master\` — worktree, branch `asrock-6800xt-master`, lo productivo.
+- `OpenRGBEffectsPlugin\` y worktree `OpenRGBEffectsPlugin-master\`.
+- `Qt\6.8.3\msvc2022_64` + qt5compat, y `Qt\jom`. Upstream CI sigue en Qt 6.8.3
+  + VS 2022, no hace falta cambiarlo.
+- Los scripts de build tienen default `QT_ROOT=E:\Claude\RGB\Qt` (viejo): setear
+  `QT_ROOT` antes de llamarlos.
+- VS 2022 Build Tools (VCTools, MSVC 14.44) en
+  `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools`. Desapareció
+  sin registro en algún momento antes del 2026-09-27 y se reinstaló por winget
+  (`Microsoft.VisualStudio.2022.BuildTools`). Si falta, verificar con una
+  búsqueda de `vcvarsall.bat` antes de asumir nada.
 
 ## Gotchas de build en esta máquina
 
@@ -53,3 +69,9 @@ de tocar el protocolo i2c o el patch.
 - La CLI de OpenRGB: pasar un nombre de device con espacios desde PowerShell lo
   parte en varios argv y aborta el parseo de opciones. Usar el índice
   (`--device 0`).
+- `--config <dir>` no aísla del todo: el build 1.0+ escribe
+  `%APPDATA%\OpenRGB\OpenRGB.json` (agrega claves default) y un log ahí antes
+  de cambiar de directorio. Para probar builds sin tocar lo productivo, hacer
+  backup de `%APPDATA%\OpenRGB` antes.
+- Para chequear si OpenRGB corre usar `tasklist /FI "IMAGENAME eq OpenRGB*"`;
+  un `Get-Process OpenRGB` encadenado con otros comandos dio falso negativo.

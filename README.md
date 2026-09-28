@@ -6,19 +6,24 @@ plus the OpenRGB patch that adds native support.
 ## Layout
 
 ```
-E:\Claude\RGB\
+openrgb-asrock-6800xt\         this repo
   README.md                    this file
   CLAUDE.md                    context for Claude Code sessions started here
   cli\asrock_gpu_rgb.py        standalone LED control over AMD ADL I2C
-  OpenRGB\                     patched OpenRGB fork, branch
-                               asrock-gpu-navi21-phantom-gaming
-  OpenRGBEffectsPlugin\        effects plugin source + build-plugin.bat
-  patches\                     the detector patch as a standalone .patch
+  patches\0001-*.patch         original patch (base 790e148, 2026-08-11)
+  patches\0002-*.patch         rebased patch on upstream master (current)
   research\                    probe scripts used to reverse the protocol,
                                ADL backend reference, MR !3402 diff,
                                transcript renderer
+
+E:\Repositorios\Personal\_datos\openrgb-asrock-6800xt\   (not in git)
+  OpenRGB\                     OpenRGB clone, branch
+                               asrock-gpu-navi21-phantom-gaming (old base)
+  OpenRGB-master\              worktree, branch asrock-6800xt-master (current)
+  OpenRGBEffectsPlugin\        effects plugin source + build-plugin.bat
+  OpenRGBEffectsPlugin-master\ worktree on plugin master (current)
+  Qt\                          Qt 6.8.3 msvc2022_64 + jom
   transcript\                  the session that produced all of this
-                               (.jsonl raw + conversation.md readable)
 ```
 
 The built binary is installed separately at `C:\Program Files\OpenRGB-patched`
@@ -245,9 +250,9 @@ things worth knowing before touching it:
 
 ## OpenRGB patch
 
-Branch `asrock-gpu-navi21-phantom-gaming` in `C:\Users\KnuPwns\src\OpenRGB`,
-exported as
-`C:\Users\KnuPwns\src\0001-Add-ASRock-RX-6800-XT-Phantom-Gaming-GPU-RGB-support.patch`.
+Branch `asrock-gpu-navi21-phantom-gaming` in
+`E:\Repositorios\Personal\_datos\openrgb-asrock-6800xt\OpenRGB`, exported as
+`patches/0001-Add-ASRock-RX-6800-XT-Phantom-Gaming-GPU-RGB-support.patch`.
 
 Upstream already has the ASRock GPU controller (merged 2026-07-31, for the
 RX 9070 XT Steel Legend), but it does not work here for two reasons:
@@ -265,26 +270,37 @@ RX 9070 XT Steel Legend), but it does not work here for two reasons:
 Plus a fallback channel layout, keyed on PCI subsystem device, used when the
 `0x14` query returns nothing.
 
+**Update 2026-09-27.** Upstream commit `b420af5c` already removed the
+`i2c_smbus_write_quick()` probe, so reason 2 is fixed upstream. T4toh rebased
+the rest onto master (issue #1): `patches/0002-*.patch`, 3 files, no
+`pci_ids.h` change, raw `0x5202` sub-ID like the other upstream detectors.
+Verified on Windows on master `5b2d5ce`: detection, the Naranja profile and the
+Effects Plugin 1.0+ all work. The patch is still not upstream.
+
 ## Build and install
 
-Toolchain (already installed on this machine):
+Toolchain:
 
 * VS 2022 Build Tools with the VCTools workload —
   `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools`
-* Qt 6.8.3 msvc2022_64 in `E:\Claude\RGB\Qt` (via `pip install aqtinstall`,
-  `aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -m qt5compat -O E:\Claude\RGB\Qt`).
-  El install es relocatable (aqtinstall deja un `qt.conf`), así que se movió desde
-  `C:\Qt` sin reinstalar.
-* jom in `E:\Claude\RGB\Qt\jom`
+  (`winget install Microsoft.VisualStudio.2022.BuildTools` with
+  `--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended`)
+* Qt 6.8.3 msvc2022_64 + qt5compat in
+  `E:\Repositorios\Personal\_datos\openrgb-asrock-6800xt\Qt` (via aqtinstall:
+  `aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -m qt5compat -O <dir>`).
+  The install is relocatable (aqtinstall writes a `qt.conf`), so it has been
+  moved twice without reinstalling.
+* jom in `...\Qt\jom`
 
-Los scripts de build toman la raíz de Qt de la variable `QT_ROOT`, con default
-`E:\Claude\RGB\Qt`. Para apuntar a otro install, exportarla antes de invocarlos.
+The build scripts read the Qt root from `QT_ROOT`. Its default still points to
+the old `E:\Claude\RGB\Qt`, so set it first.
 
 Rebuild:
 
 ```
-cd E:\Claude\RGB\OpenRGB
-scripts\build-windows.bat 6.8.3 2022 64
+set QT_ROOT=E:\Repositorios\Personal\_datos\openrgb-asrock-6800xt\Qt
+cd /d E:\Repositorios\Personal\_datos\openrgb-asrock-6800xt\OpenRGB-master
+.\scripts\build-windows.bat 6.8.3 2022 64
 ```
 
 Output lands in `OpenRGB Windows 64-bit\`. The script ends with
@@ -314,7 +330,8 @@ The card's firmware has no effect modes — the controller exposes only `Direct`
 so animated effects have to be driven in software. The OpenRGB Effects Plugin
 is built and installed for that:
 
-* source + build script: `E:\Claude\RGB\OpenRGBEffectsPlugin\build-plugin.bat`
+* source + build script:
+  `E:\Repositorios\Personal\_datos\openrgb-asrock-6800xt\OpenRGBEffectsPlugin-master\build-plugin.bat`
 * installed to `%APPDATA%\OpenRGB\plugins\OpenRGBEffectsPlugin.dll`
 * loads clean against this build (`58 effects registered`); its submodule pins
   OpenRGB at plugin API version 5, which matches
