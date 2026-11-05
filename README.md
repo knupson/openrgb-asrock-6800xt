@@ -361,3 +361,10 @@ binary, so its stdout is not capturable when launched without a console —
 check `%APPDATA%\OpenRGB\logs\` instead. Passing a multi-word device name from
 PowerShell splits into separate argv entries and aborts option parsing; use
 the device index.
+
+## License
+
+The code in this repository is released under the MIT License (see `LICENSE`).
+
+The files in `patches/` modify OpenRGB and are distributed under
+GPL-2.0-or-later, the same license as OpenRGB. The MIT License does not cover them.
